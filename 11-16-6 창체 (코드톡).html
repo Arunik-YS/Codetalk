@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>코드톡 (CodeTalk) - 패드용</title>
+    <style>
+        :root {
+            --primary-bg: #f0f2f5; 
+            --ct-dark: #2c3e50; 
+            --p1: #ff5252; --p2: #448aff; --p3: #4caf50; --p4: #ff9800; --p5: #9c27b0;
+        }
+
+        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; background-color: var(--primary-bg); height: 100vh; overflow: hidden; display: flex; flex-direction: column; user-select: none; align-items: center; justify-content: center; }
+
+        /* 공통 레이아웃 */
+        .game-viewport { width: 100%; max-width: 800px; display: flex; flex-direction: column; position: relative; padding: 20px; box-sizing: border-box; }
+        .setup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .setup-box { background: white; padding: 25px; border-radius: 20px; text-align: center; width: 380px; }
+        input[type="text"], select { padding: 8px; border-radius: 5px; border: 1px solid #ccc; width: 150px; font-size: 1rem; }
+        .start-btn { background: var(--ct-dark); color: white; border: none; padding: 15px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; font-size: 1.2rem; margin-top: 15px; transition: 0.2s;}
+        .start-btn:hover { filter: brightness(1.2); }
+
+        /* 상단 UI 패널 */
+        .top-pane { position: relative; width: 100%; text-align: center; margin-bottom: 20px; }
+        .status-wrap { text-align: center; width: 100%; }
+        .guide-box { padding: 15px; background: #f1c40f; border-radius: 15px; font-size: 1.3rem; font-weight: bold; text-align: center; color: #333; margin-top: 10px; width: 100%; box-sizing: border-box; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+
+        /* 턴 대기열 */
+        .turn-queue { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .queue-badge { padding: 8px 16px; border-radius: 20px; color: white; font-weight: bold; opacity: 0.3; transition: all 0.3s; border: 3px solid transparent; font-size: 1.1rem; }
+        .queue-badge.active { opacity: 1; transform: scale(1.1); box-shadow: 0 5px 15px rgba(0,0,0,0.3); border-color: #333; z-index: 2; }
+        .queue-arrow { color: #95a5a6; font-size: 1.2rem; }
+
+        /* 되돌리기 버튼 */
+        .undo-container { position: absolute; top: 0; right: 0; }
+        #undo-btn { background: #e67e22; color: white; border: none; padding: 8px 15px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1rem; display: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+
+        /* 코드톡 보드 (통합형) */
+        .board-container { display: flex; justify-content: center; align-items: center; width: 100%; }
+        .ct-board-base { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: var(--ct-dark); border-radius: 12px; width: min(85vw, 65vh); height: min(85vw, 65vh); box-shadow: 0 15px 30px rgba(0,0,0,0.2); border: 4px solid #bdc3c7; }
+        .ct-space { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: #bdc3c7; padding: 6px; border-radius: 5px; transition: 0.3s; }
+        .ct-space.active-space { background: #f1c40f !important; box-shadow: 0 0 20px #f1c40f; transform: scale(1.02); }
+        .ct-cell { background: white; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; border-radius: 3px; cursor: pointer; }
+        .ct-stone { width: 80%; height: 80%; border-radius: 50%; box-shadow: 0 3px 0 rgba(0,0,0,0.2); animation: appear 0.2s; }
+
+        @keyframes appear { from { transform: scale(0); } to { transform: scale(1); } }
+    </style>
+</head>
+<body>
+
+    <section id="view-ct" class="game-viewport">
+        <!-- 설정 창 -->
+        <div id="ct-setup" class="setup-overlay">
+            <div class="setup-box">
+                <h2>코드톡(CodeTalk) 설정</h2>
+                인원: 
+                <select id="ct-count" onchange="genCTNames()">
+                    <option value="2" selected>2인용</option>
+                    <option value="3">3인용</option>
+                    <option value="4">4인용</option>
+                    <option value="5">5인용</option>
+                </select>
+                <div id="ct-name-area" style="margin: 15px 0;"></div>
+                <button onclick="startCT()" class="start-btn">게임 시작</button>
+            </div>
+        </div>
+
+        <!-- 상단 정보 UI -->
+        <div class="top-pane">
+            <div class="undo-container">
+                <button id="undo-btn" onclick="undoMove()">↩ 되돌리기</button>
+            </div>
+            <div class="status-wrap">
+                <h2 id="ct-curr-name" style="font-size: 2.2rem; margin: 0 0 10px 0;">---</h2>
+                <div id="ct-queue" class="turn-queue"></div>
+                <div id="ct-guide" class="guide-box">첫 수를 두세요!</div>
+            </div>
+        </div>
+
+        <!-- 통합형 메인 보드 -->
+        <div class="board-container">
+            <div id="ct-board" class="ct-board-base"></div>
+        </div>
+    </section>
+
+    <script>
+        const pColors = ['#ff5252', '#448aff', '#4caf50', '#ff9800', '#9c27b0'];
+        
+        let ctP = [], ctIdx = 0, ctNext = null, ctData = [];
+        let gameHistory = [], undoChances = [];
+
+        // 1. 초기 이름 입력창 생성 (AI 제거됨)
+        function genCTNames() { 
+            const c = parseInt(document.getElementById('ct-count').value); 
+            const a = document.getElementById('ct-name-area'); 
+            a.innerHTML = ''; 
+            for(let i=0; i<c; i++) {
+                a.innerHTML += `<div style="margin:5px;">P${i+1}: <input type="text" value="학생${i+1}" id="ct-n-${i}"></div>`; 
+            }
+        }
+
+        // 2. 게임 시작
+        function startCT() {
+            const c = parseInt(document.getElementById('ct-count').value); 
+            ctP = [];
+            for(let i=0; i<c; i++) {
+                ctP.push({n:document.getElementById(`ct-n-${i}`).value, c:pColors[i]}); 
+            }
+            document.getElementById('ct-setup').style.display = 'none'; 
+            renderQueue(); 
+            initUndo();
+            initCT();
+        }
+
+        // 3. UI 및 대기열 유틸리티
+        function renderQueue() {
+            const container = document.getElementById('ct-queue'); container.innerHTML = '';
+            ctP.forEach((p, index) => {
+                const badge = document.createElement('div'); badge.className = 'queue-badge'; badge.id = `ct-badge-${index}`;
+                badge.style.backgroundColor = p.c; badge.textContent = p.n; container.appendChild(badge);
+                if (index < ctP.length - 1) { const arrow = document.createElement('span'); arrow.className = 'queue-arrow'; arrow.textContent = '▶'; container.appendChild(arrow); }
+            });
+        }
+
+        function highlightQueue() {
+            for(let i=0; i<ctP.length; i++) { const el = document.getElementById(`ct-badge-${i}`); if(el) el.classList.remove('active'); }
+            const activeEl = document.getElementById(`ct-badge-${ctIdx}`); if(activeEl) activeEl.classList.add('active');
+        }
+
+        // 4. 되돌리기 (Undo) 시스템 - 통합 보드용으로 수정됨
+        function initUndo() {
+            gameHistory = [];
+            undoChances = new Array(ctP.length).fill(3);
+            updateUndoUI();
+        }
+
+        function updateUndoUI() {
+            const btn = document.getElementById('undo-btn');
+            btn.style.display = 'inline-block';
+            btn.innerText = `↩ 되돌리기 (P${ctIdx + 1} 횟수: ${undoChances[ctIdx]})`;
+            btn.style.opacity = undoChances[ctIdx] > 0 ? '1' : '0.5';
+        }
+
+        function saveState() {
+            try {
+                let state = {
+                    turnIdx: ctIdx, 
+                    ctData: JSON.parse(JSON.stringify(ctData)), 
+                    ctNext: ctNext,
+                    boardHTML: document.getElementById('ct-board').innerHTML, 
+                    queueHTML: document.getElementById('ct-queue').innerHTML
+                };
+                gameHistory.push(state);
+            } catch(e) { console.error("상태 백업 에러", e); }
+        }
+
+        function undoMove() {
+            if (gameHistory.length === 0) { alert("되돌릴 수 있는 기록이 없습니다."); return; }
+
+            // AI가 없으므로 무조건 이전 상태(직전 턴)로 돌아감
+            let targetStateIndex = gameHistory.length - 1;
+            let targetState = gameHistory[targetStateIndex];
+            let undoPlayer = targetState.turnIdx; 
+
+            if (undoChances[undoPlayer] <= 0) { alert(`${ctP[undoPlayer].n}님은 3번의 되돌리기 기회를 모두 사용했습니다!`); return; }
+
+            undoChances[undoPlayer]--;
+            gameHistory = gameHistory.slice(0, targetStateIndex);
+
+            // 상태 복원
+            ctIdx = targetState.turnIdx; ctData = targetState.ctData; ctNext = targetState.ctNext;
+            document.getElementById('ct-board').innerHTML = targetState.boardHTML; 
+            document.getElementById('ct-queue').innerHTML = targetState.queueHTML;
+            
+            // 이벤트 리스너 재부착
+            for(let s=0; s<9; s++) {
+                for(let c=0; c<9; c++) {
+                    document.getElementById(`ct-s-${s}`).children[c].onclick = () => moveCT(s, c);
+                }
+            }
+            updateCTUI();
+        }
+
+        // 5. 보드 초기화 (단일 보드)
+        function initCT() {
+            const board = document.getElementById('ct-board'); 
+            board.innerHTML = '';
+            
+            ctData = Array.from({length:9}, () => Array(9).fill(null));
+            for(let s=0; s<9; s++) {
+                const space = document.createElement('div'); space.className = 'ct-space'; space.id = `ct-s-${s}`;
+                for(let c=0; c<9; c++) {
+                    const cell = document.createElement('div'); cell.className = 'ct-cell'; 
+                    cell.onclick = () => moveCT(s, c);
+                    space.appendChild(cell);
+                } 
+                board.appendChild(space);
+            } 
+            updateCTUI(); 
+        }
+
+        // 6. 돌 두기 로직 (단일 보드)
+        function moveCT(s, c) {
+            if((ctNext !== null && s !== ctNext) || ctData[s][c] !== null) return;
+            
+            saveState(); // ★ 되돌리기용 저장
+            ctData[s][c] = ctIdx;
+            
+            const stone = document.createElement('div'); stone.className = 'ct-stone'; stone.style.background = ctP[ctIdx].c;
+            document.getElementById(`ct-s-${s}`).children[c].appendChild(stone); 
+            
+            // 승리 판별
+            if(checkWin(s, c, ctIdx)) { 
+                setTimeout(() => {
+                    alert(ctP[ctIdx].n + " 우승!");
+                    location.reload();
+                }, 100); 
+                return; 
+            }
+            
+            // 다음 턴 계산
+            ctNext = ctData[c].every(v => v !== null) ? null : c; 
+            ctIdx = (ctIdx + 1) % ctP.length; 
+            updateCTUI();
+        }
+
+        // 7. 승리 판별
+        function checkWin(s, c, pIdx) {
+            const rows = 9, cols = 9; 
+            const r = Math.floor(s/3)*3 + Math.floor(c/3); 
+            const col = (s%3)*3 + (c%3);
+            const fb = Array.from({length:rows},()=>Array(cols).fill(null));
+            
+            for(let si=0; si<9; si++) {
+                for(let ci=0; ci<9; ci++) {
+                    fb[Math.floor(si/3)*3+Math.floor(ci/3)][(si%3)*3+(ci%3)] = ctData[si][ci];
+                }
+            }
+            
+            const ds = [[[0,1],[0,-1]], [[1,0],[-1,0]], [[1,1],[-1,-1]], [[1,-1],[-1,1]]];
+            return ds.some(dir => { 
+                let cnt = 1; 
+                dir.forEach(([dr,dc]) => { 
+                    let nr=r+dr, nc=col+dc; 
+                    while(nr>=0 && nr<rows && nc>=0 && nc<cols && fb[nr][nc] === pIdx) {
+                        cnt++; nr+=dr; nc+=dc;
+                    } 
+                }); 
+                return cnt >= 3; 
+            });
+        }
+
+        // 8. UI 업데이트 (단일 보드)
+        function updateCTUI() {
+            document.getElementById('ct-curr-name').textContent = ctP[ctIdx].n; 
+            document.getElementById('ct-curr-name').style.color = ctP[ctIdx].c;
+            highlightQueue(); 
+            document.querySelectorAll('.ct-space').forEach(el => el.classList.remove('active-space'));
+            
+            if(ctNext !== null) { 
+                document.getElementById(`ct-s-${ctNext}`).classList.add('active-space'); 
+                document.getElementById('ct-guide').textContent = (ctNext+1)+"번 구역을 터치하세요!"; 
+            } else {
+                document.getElementById('ct-guide').textContent = "자유롭게 아무 곳이나 두세요!";
+            }
+            updateUndoUI();
+        }
+
+        // 페이지 로드 시 이름 입력창 렌더링
+        window.onload = genCTNames;
+    </script>
+</body>
+</html>
